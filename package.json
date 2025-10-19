@@ -2,7 +2,7 @@
   "name": "debug-nodejs-llm-tools",
   "version": "1.0.0",
   "description": "This repo dives deep into how to resolve issues and errors with backend applications with LLM tool calling capabilities.",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -13,7 +13,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/Hadi2525/debug-nodejs-llm-tools/issues"
   },
