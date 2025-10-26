@@ -1,153 +1,263 @@
+// server.js
 import express from "express";
-import OpenAI from "openai";
 import dotenv from "dotenv";
-import { functions } from "./tools.js";
-import { get_latest_news, get_google_places } from "./functions.js";
+import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
+
+import {
+  registerTool,
+  dispatch,
+  listToolsForOpenAI,
+  listToolsForGemini,
+} from "./tools.js";
+
+import {
+  get_latest_news,
+  get_google_places,
+  convert_units,
+  get_time,
+} from "./functions.js";
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// -----------------------
+// Register your tools
+// -----------------------
+registerTool(
+  {
+    name: "get_latest_news",
+    description: "Fetch latest news headlines on a topic.",
+    parameters: {
+      type: "object",
+      properties: {
+        topic: { type: "string", description: "Topic to search for." },
+        language: { type: "string", description: "Language code, e.g., 'en'." },
+      },
+      required: ["topic"],
+      additionalProperties: false,
+    },
+  },
+  get_latest_news
+);
 
-// ===== Pricing for gpt-4.1 (USD per 1K tokens) =====
-const MODEL_PRICING = {
-  input: 0.005,
-  output: 0.015,
+registerTool(
+  {
+    name: "get_google_places",
+    description: "Find recommended places (e.g., restaurants) in a city using Apify Google Places.",
+    parameters: {
+      type: "object",
+      properties: {
+        city: { type: "string", description: "City or area, e.g., 'Calgary, Canada'." },
+        query: { type: "string", description: "Place type/keyword, e.g., 'coffee'." },
+        language: { type: "string", description: "Language of results." },
+        maxResults: { type: "integer", description: "1–200" },
+      },
+      required: ["city", "query"],
+      additionalProperties: false,
+    },
+  },
+  get_google_places
+);
+
+// New simple demos
+registerTool(
+  {
+    name: "convert_units",
+    description: "Convert units: c_to_f, f_to_c, km_to_miles.",
+    parameters: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["c_to_f", "f_to_c", "km_to_miles"] },
+        value: { type: "number" },
+      },
+      required: ["kind", "value"],
+      additionalProperties: false,
+    },
+  },
+  convert_units
+);
+
+registerTool(
+  {
+    name: "get_time",
+    description: "Return current server time in ISO format.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  get_time
+);
+
+// -----------------------
+// Clients
+// -----------------------
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY }); // Chat Completions with tools :contentReference[oaicite:2]{index=2}
+const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });   // Gemini function calling :contentReference[oaicite:3]{index=3}
+
+// -----------------------
+// Helpers
+// -----------------------
+const MODEL_PRICING = { input: 0.005, output: 0.015 }; // example pricing (adjust to your model)
+const log = (m, d = null) => {
+  const t = new Date().toISOString();
+  if (d) console.log(`[${t}] ${m}`, d);
+  else console.log(`[${t}] ${m}`);
+};
+const costFromUsage = (u) => {
+  if (!u) return 0;
+  const inCost = ((u.prompt_tokens || 0) / 1000) * MODEL_PRICING.input;
+  const outCost = ((u.completion_tokens || 0) / 1000) * MODEL_PRICING.output;
+  return inCost + outCost;
 };
 
-// Timestamped logger
-function log(message, data = null) {
-  const timestamp = new Date().toISOString();
-  if (data) console.log(`[${timestamp}] ${message}`, data);
-  else console.log(`[${timestamp}] ${message}`);
-}
-
-// Cost calculator
-function costFromUsage(usage) {
-  if (!usage) return 0;
-  const inCost = ((usage.prompt_tokens || 0) / 1000) * MODEL_PRICING.input;
-  const outCost = ((usage.completion_tokens || 0) / 1000) * MODEL_PRICING.output;
-  return inCost + outCost;
-}
-
-/**
- * Unified endpoint: handles all AI queries.
- * The model decides whether to call get_latest_news or get_google_places.
- */
+// =======================================================
+// POST /query  -> OpenAI (Chat Completions) with tools
+// =======================================================
 app.post("/query", async (req, res) => {
-  const { query } = req.body;
+  const { query } = req.body || {};
+  if (!query) return res.status(400).json({ error: "Missing 'query' in request body." });
 
-  if (!query) {
-    log("❌ Missing 'query' in request body");
-    return res.status(400).json({ error: "Missing 'query' in request body." });
-  }
-
-  log("📩 Received request", { query });
-
+  log("📩 /query", { query });
   let totalTokens = 0;
   let totalCost = 0;
 
   try {
-    // Step 1: Ask OpenAI to interpret user intent
-    log("🧠 Calling OpenAI to interpret query...");
-    const aiResponse = await openai.chat.completions.create({
-      model: "gpt-4.1",
+    // Step 1: Ask OpenAI; give it the tool catalog
+    const first = await openai.chat.completions.create({
+      model: "gpt-4o", // any tool-capable model (your code had gpt-4.1)
       messages: [{ role: "user", content: query }],
-      functions,
-      function_call: "auto",
+      tools: listToolsForOpenAI(),
+      tool_choice: "auto",
     });
 
-    const usage1 = aiResponse.usage || {};
-    const cost1 = costFromUsage(usage1);
+    const usage1 = first.usage || {};
     totalTokens += usage1.total_tokens || 0;
-    totalCost += cost1;
-    log("📊 OpenAI usage (intent)", {
-      prompt_tokens: usage1.prompt_tokens,
-      completion_tokens: usage1.completion_tokens,
-      total_tokens: usage1.total_tokens,
-      cost_usd: `$${cost1.toFixed(6)}`,
-    });
+    totalCost += costFromUsage(usage1);
+    const assistantMsg = first.choices[0].message;
+    const calls = assistantMsg.tool_calls || [];
 
-    const message = aiResponse.choices[0].message;
-    log("✅ OpenAI response received", { function_call: message.function_call });
-
-    // Step 2: Execute function call if requested
-    if (message.function_call) {
-      const { name, arguments: args } = message.function_call;
-      const parsedArgs = JSON.parse(args);
-      log(`⚙️ Function call triggered: ${name}`, parsedArgs);
-
-      let result;
-
-      if (name === "get_latest_news") {
-        log("🌍 Fetching from News API...");
-        result = await get_latest_news(parsedArgs);
-        log("✅ News API fetch successful", {
-          items: Array.isArray(result) ? result.length : 0,
-        });
-      } else if (name === "get_google_places") {
-        log("🗺️ Fetching places from Apify (Google Places)...");
-        result = await get_google_places(parsedArgs);
-        log("✅ Apify Google Places fetch successful", {
-          items: Array.isArray(result) ? result.length : 0,
-        });
-      } else {
-        throw new Error(`Unknown function: ${name}`);
-      }
-
-      // Step 3: Send results back to OpenAI for summarization
-      log("🧩 Sending results back to OpenAI for summarization...");
-      const summaryResponse = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "user", content: query },
-          message,
-          { role: "function", name, content: JSON.stringify(result) },
-        ],
-      });
-
-      const usage2 = summaryResponse.usage || {};
-      const cost2 = costFromUsage(usage2);
-      totalTokens += usage2.total_tokens || 0;
-      totalCost += cost2;
-      log("📊 OpenAI usage (summary)", {
-        prompt_tokens: usage2.prompt_tokens,
-        completion_tokens: usage2.completion_tokens,
-        total_tokens: usage2.total_tokens,
-        cost_usd: `$${cost2.toFixed(6)}`,
-      });
-
-      const summary = summaryResponse.choices[0].message.content;
-      log("✅ OpenAI summarization complete");
-      log("🧾 Request totals", {
-        total_tokens: totalTokens,
-        total_cost_usd: `$${totalCost.toFixed(6)}`,
-      });
-
+    if (calls.length === 0) {
+      log("ℹ️ No tool call; returning assistant text");
       return res.json({
-        tool_used: name,
-        args: parsedArgs,
-        result,
-        summary,
+        response: assistantMsg.content,
         tokens_used: totalTokens,
         estimated_cost_usd: Number(totalCost.toFixed(6)),
       });
     }
 
-    // Step 4: If no function call
-    log("ℹ️ No function call made by OpenAI");
-    res.json({
-      response: message.content,
+    // Step 2: Execute tool calls (simple serial execution; parallelize if independent)
+    const toolResponses = [];
+    for (const call of calls) {
+      const { name, arguments: argString } = call.function;
+      const args = argString ? JSON.parse(argString) : {};
+      log(`⚙️ ${name}`, args);
+
+      const result = await dispatch(name, args);
+      toolResponses.push({
+        role: "tool",
+        tool_call_id: call.id,           // critical: link back to tool call
+        content: JSON.stringify(result), // string content
+        name,
+      });
+    }
+
+    // Step 3: Ask OpenAI to summarize
+    const final = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "user", content: query },
+        assistantMsg,   // contains tool_calls
+        ...toolResponses,
+      ],
+    });
+
+    const usage2 = final.usage || {};
+    totalTokens += usage2.total_tokens || 0;
+    totalCost += costFromUsage(usage2);
+
+    return res.json({
+      tool_calls: calls.map((c) => ({ name: c.function.name })),
+      summary: final.choices[0].message.content,
       tokens_used: totalTokens,
       estimated_cost_usd: Number(totalCost.toFixed(6)),
     });
   } catch (err) {
-    log("❌ Error during request", err.message);
-    res.status(500).json({ error: err.message });
+    log("❌ /query error", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================================================================
+// POST /query-gemini  -> Gemini function calling (multi-turn pattern)
+// ==================================================================
+app.post("/query-gemini", async (req, res) => {
+  const { query } = req.body || {};
+  if (!query) return res.status(400).json({ error: "Missing 'query' in request body." });
+
+  log("📩 /query-gemini", { query });
+
+  try {
+    // Step 1: First turn — model may request function calls
+    const first = await genai.models.generateContent({
+      model: "gemini-2.5-flash-lite", // pick your preferred Gemini model
+      // Provide tools (function declarations) to the model
+      tools: listToolsForGemini(), // docs: function calling & tools :contentReference[oaicite:4]{index=4}
+      systemInstruction:
+        "You are a concise assistant. Use tools when they add factual value. Keep answers tight.",
+      contents: query,
+    });
+
+    const candidate = first.candidates?.[0];
+    const parts = candidate?.content?.parts || [];
+    const functionCalls = parts
+      .map((p) => p.functionCall)
+      .filter(Boolean); // [{ name, args }]
+
+    if (!functionCalls.length) {
+      // No tools needed; return model text
+      const text = parts.map((p) => p.text).filter(Boolean).join("\n");
+      return res.json({ response: text || "(no text)" });
+    }
+
+    // Step 2: Execute each function call
+    const toolResults = [];
+    for (const fc of functionCalls) {
+      const { name, args } = fc;
+      log(`⚙️ Gemini tool call: ${name}`, args);
+      const result = await dispatch(name, args || {});
+      // Build a tool response part for Gemini
+      toolResults.push({
+        functionResponse: { name, response: result },
+      });
+    }
+
+    // Step 3: Send tool results back, ask for final answer
+    const second = await genai.models.generateContent({
+      model: "gemini-2.5-flash-lite",
+      tools: listToolsForGemini(),
+      systemInstruction:
+        "You are a concise assistant. Use tools when they add factual value. Keep answers tight.",
+      contents: [
+        { role: "user", parts: [{ text: query }] },
+        candidate.content, // the assistant turn with functionCalls
+        { role: "function", parts: toolResults },    // return the results
+      ],
+    });
+
+    const finalText =
+      second.candidates?.[0]?.content?.parts
+        ?.map((p) => p.text)
+        ?.filter(Boolean)
+        ?.join("\n") || "";
+
+    return res.json({
+      gemini_tool_calls: functionCalls.map((c) => ({ name: c.name })),
+      summary: finalText,
+    });
+  } catch (err) {
+    log("❌ /query-gemini error", err.message);
+    return res.status(500).json({ error: err.message });
   }
 });
 
