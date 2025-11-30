@@ -262,4 +262,4 @@ app.post("/query-gemini", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => log(`🚀 Server running at http://localhost:${PORT}`));

@@ -94,10 +94,12 @@ Response includes:
 
 6) Example: Ask for latest news (OpenAI)
 
+The LLM intelligently decides when to use tools based on natural language queries. Use implicit, conversational queries:
+
 ```bash
 curl -sS -X POST http://localhost:3000/query \
   -H 'Content-Type: application/json' \
-  -d '{"query":"Give me the latest news about OpenAI"}' | jq
+  -d '{"query":"What is happening with OpenAI lately? Any recent updates?"}' | jq
 ```
 
 7) Example: Use Gemini endpoint
@@ -105,138 +107,304 @@ curl -sS -X POST http://localhost:3000/query \
 ```bash
 curl -sS -X POST http://localhost:3000/query-gemini \
   -H 'Content-Type: application/json' \
+  -d '{"query":"Tell me about the latest breakthroughs in quantum computing"}' | jq
+```
+
+8) Example: Natural queries for different tools
+
+The key is to use natural, conversational language that implies the need for specific information:
+
+**Temperature conversion (implicit):**
+```bash
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I want to bake something at 350 Fahrenheit. What is that in Celsius?"}' | jq
+```
+
+**Distance conversion (implicit):**
+```bash
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I am driving 150 kilometers. How many miles is that?"}' | jq
+```
+
+**Finding places (implicit):**
+```bash
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I am visiting Tokyo next week and looking for great sushi restaurants. Can you recommend some highly-rated places?"}' | jq
+```
+
+**Get current time (implicit):**
+```bash
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I need to log this event with a timestamp. What is the current time?"}' | jq
+```
+
+9) Example: Parallel function calling (multiple topics)
+
+Ask questions that naturally require multiple tool calls. The LLM can call the same function multiple times with different parameters:
+
+**Multiple news topics in one query:**
+```bash
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I want to catch up on recent tech news. What are the latest developments in artificial intelligence and quantum computing?"}' | jq
+```
+
+**Multiple locations for places:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I am planning trips to San Francisco and Seattle. Can you find me the best coffee shops in both cities?"}' | jq
+```
+
+**Multiple conversions:**
+```bash
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I am traveling from Canada to the US. The temperature here is 20 Celsius and I need to drive 100 kilometers. What are these in Fahrenheit and miles?"}' | jq
+```
+
+10) Example: Mixed function calling (different functions in one query)
+
+Queries that naturally require multiple different tools:
+
+**News + Places:**
+```bash
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"What are the recent headlines about electric vehicles, and where can I find Tesla showrooms in Los Angeles?"}' | jq
+```
+
+**Time + News:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"What time is it right now, and what are today'\''s top technology news stories?"}' | jq
+```
+
+**Conversion + Places:**
+```bash
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"The weather in Chicago is 75 Fahrenheit. What is that in Celsius? Also, recommend some good Italian restaurants there."}' | jq
+```
+
+**All tools combined:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"What is the current server time? Convert 30 Celsius to Fahrenheit. Find me pizza places in New York. And tell me the latest news about climate change."}' | jq
+```
+
+11) Separate sequential requests (alternative approach)
+
+You can also issue multiple requests sequentially if you prefer separate responses:
+
+```bash
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
   -d '{"query":"What are the latest developments in quantum computing?"}' | jq
-```
 
-8) Example: Test the new demo tools
+sleep 1
 
-**Convert units:**
-```bash
 curl -sS -X POST http://localhost:3000/query \
   -H 'Content-Type: application/json' \
-  -d '{"query":"Convert 25 Celsius to Fahrenheit"}' | jq
+  -d '{"query":"Where can I find authentic sushi restaurants in San Francisco?"}' | jq
 ```
 
-**Get current time:**
+**Loop through multiple topics:**
 ```bash
-curl -sS -X POST http://localhost:3000/query \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"What time is it on the server?"}' | jq
-```
-
-9) Force a specific function call
-
-The server delegates function-calling decisions to the LLM. To test a particular function without relying on the model's intent, craft the query to clearly ask for the specific action:
-
-**Explicit news query:**
-```bash
-curl -sS -X POST http://localhost:3000/query \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"Call get_latest_news with topic=\"blockchain\""}' | jq
-```
-
-**Explicit places query:**
-```bash
-curl -sS -X POST http://localhost:3000/query \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"Call get_google_places to find best pizza in New York City"}' | jq
-```
-
-10) Call functions multiple times in separate requests
-
-You can issue multiple requests sequentially. Example: search several topics for news.
-
-```bash
-for topic in "AI" "blockchain" "climate"; do
-  echo "\n=== topic: $topic ==="
+for topic in "artificial intelligence" "renewable energy" "space exploration"; do
+  echo "\n=== Searching news for: $topic ==="
   curl -sS -X POST http://localhost:3000/query \
     -H 'Content-Type: application/json' \
-    -d "{\"query\":\"Get latest news about $topic\"}" | jq
+    -d "{\"query\":\"Tell me about recent developments in $topic\"}" | jq
   sleep 1
 done
 ```
 
-11) Call both functions (mixed) — sequentially or concurrently
-
-**Sequential example:** first get news, then places.
-
+**Loop through multiple cities:**
 ```bash
-curl -sS -X POST http://localhost:3000/query \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"Get latest news about quantum computing"}' | jq
-
-curl -sS -X POST http://localhost:3000/query \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"Find top sushi restaurants in San Francisco"}' | jq
+for city in "Tokyo, Japan" "Paris, France" "Dubai, UAE"; do
+  echo "\n=== Finding hotels in: $city ==="
+  curl -sS -X POST http://localhost:3000/query-gemini \
+    -H 'Content-Type: application/json' \
+    -d "{\"query\":\"I need to find luxury hotels in $city. What are the best options?\"}" | jq
+  sleep 1
+done
 ```
 
 **Concurrent example** (background requests):
 
 ```bash
 curl -sS -X POST http://localhost:3000/query \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"Get latest news about quantum computing"}' &
+12) Compare OpenAI vs Gemini function calling
 
+Test the same natural query on both endpoints to compare behavior and response quality:
+
+**Simple conversion:**
+```bash
+# OpenAI
 curl -sS -X POST http://localhost:3000/query \
   -H 'Content-Type: application/json' \
-  -d '{"query":"Find top sushi restaurants in San Francisco"}' &
+  -d '{"query":"I need to convert 100 kilometers to miles for my road trip"}' | jq
 
+# Gemini
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I need to convert 100 kilometers to miles for my road trip"}' | jq
+```
+13) Advanced: Complex parallel function calling
+
+Both OpenAI and Gemini support parallel function calling, where multiple functions can be called simultaneously in a single request. Craft queries that naturally require multiple pieces of information:
+
+**Multiple news topics + multiple locations:**
+```bash
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I am doing research on tech hubs. Tell me the latest news about artificial intelligence and blockchain. Also, find me coworking spaces in San Francisco and Austin, Texas."}' | jq
+```
+
+**Travel planning query:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I am visiting Europe next month. What is the current time on the server for timestamp purposes? Find me boutique hotels in Paris and Rome. Also, what are the latest travel news and restrictions?"}' | jq
+```
+
+15) Testing high-frequency/multiple function calls (load testing)
+
+Simple rapid-fire test with natural queries (caution: this will use API credits):
+
+```bash
+for i in {1..5}; do
+  curl -sS -X POST http://localhost:3000/query \
+    -H 'Content-Type: application/json' \
+    -d '{"query":"What are the recent developments in artificial intelligence?"}' &
+done
 wait
 ```
 
-12) Compare OpenAI vs Gemini function calling
+**Stress test with varied queries:**
+```bash
+queries=(
+  "Tell me about recent advances in renewable energy"
+  "Where can I find vegan restaurants in Portland?"
+  "Convert 50 kilometers to miles"
+  "What time is it currently?"
+  "What are the latest headlines about space exploration?"
+)
 
-Test the same query on both endpoints to compare behavior:
+for query in "${queries[@]}"; do
+  curl -sS -X POST http://localhost:3000/query \
+16) Troubleshootinge: application/json' \
+    -d "{\"query\":\"$query\"}" &
+done
+wait
+``` can orchestrate multiple HTTP requests, feeding previous results into subsequent queries:
 
+```bash
+# 1) Get restaurant recommendations
+places_json=$(curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Find the best Italian restaurants in Boston"}')
+
+# 2) Use the results in a follow-up query
+summary=$(echo "$places_json" | jq -r '.summary // ""')
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d "{\"query\":\"Based on these restaurants: $summary. Which ones would be best for a romantic dinner? Consider ratings and ambiance.\"}" | jq
 ```bash
 # OpenAI
 curl -sS -X POST http://localhost:3000/query \
   -H 'Content-Type: application/json' \
   -d '{"query":"What is 100 kilometers in miles?"}' | jq
 
-# Gemini
+17) Notes and Safety
 curl -sS -X POST http://localhost:3000/query-gemini \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"What is 100 kilometers in miles?"}' | jq
-```
-
+**Function Not Called:**
+- If OpenAI/Gemini returns unexpected behavior (no function call), try making the query more specific about what information you need
+- Use natural language that clearly indicates you need real-time data, current information, or external resources
+- Avoid overly vague queries - be specific about locations, topics, or values you want to convert
+- Check server logs (printed to console) for timestamped details
 13) Repeated function calling within a single natural-language session
 
 The server flow interprets an incoming query, calls a function once if requested, then sends the results back to the model for summarization. It doesn't currently support multi-turn stateful conversations in a single HTTP call (i.e., multiple back-and-forth function calls in the same request). To simulate multi-step function calling you can:
 
-- Issue a request that asks for several subtasks (e.g., "Find restaurants in NYC and return 3 recent articles about restaurant trends") — the model may choose to call multiple functions if it's able to pack the needed calls into the function schema. Results vary by model behavior.
-- Or orchestrate multiple HTTP requests from your client, feeding the previous summary into the next request's `query` so the assistant picks up context.
+18) Natural queries for all available functions
 
-Example: chain two requests programmatically (pseudo-shell):
+Test each function with natural, conversational language that doesn't explicitly mention function names:
 
+**News (implicit):**
 ```bash
-# 1) Get places
-places_json=$(curl -sS -X POST http://localhost:3000/query -H 'Content-Type: application/json' -d '{"query":"Find best coffee shops in Seattle"}')
-
-# 2) Use the summary or results in a follow-up query
-summary=$(echo "$places_json" | jq -r '.summary // ""')
-curl -sS -X POST http://localhost:3000/query -H 'Content-Type: application/json' -d "{\"query\":\"Summarize these places and recommend the top 3 for a remote worker: $summary\"}" | jq
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I want to stay updated on artificial intelligence. What has been happening recently in this field?"}' | jq
 ```
 
-14) Testing high-frequency/multiple function calls (load testing)
-
-Simple rapid-fire test (caution: this will use API credits):
-
+**Places (implicit):**
 ```bash
-for i in {1..5}; do
-  curl -sS -X POST http://localhost:3000/query -H 'Content-Type: application/json' -d '{"query":"Get latest news about AI"}' &
-done
-wait
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I am visiting Calgary next week and would love to try some great coffee. Any recommendations?"}' | jq
 ```
 
-15) Troubleshooting
+**Temperature conversion (implicit):**
+```bash
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"It is 32 degrees Fahrenheit outside. Is that cold? What is it in Celsius?"}' | jq
+```
 
-**Missing API Keys:**
-- If you see errors about missing keys, ensure `.env` contains all required variables (OPENAI_API_KEY, GEMINI_API_KEY, NEWS_API_KEY, APIFY_TOKEN)
-- Restart the server after editing `.env`
+**Distance conversion (implicit):**
+```bash
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"My GPS says my destination is 80 kilometers away. I am used to miles - how far is that?"}' | jq
+```
 
-**Google Places Issues:**
-- For `get_google_places`, ensure `APIFY_TOKEN` is valid
+**Time (implicit):**
+```bash
+19) Python Server
+
+The project also includes a Python/FastAPI implementation with identical functionality:
+
+**Start the Python server:**
+```bash
+cd python
+pip install -r requirements.txt
+python server.py
+```
+
+The Python server runs on port 8000 by default and has the same endpoints:
+- `POST /query` - OpenAI function calling
+- `POST /query-gemini` - Gemini function calling
+
+**Example queries (replace port 3000 with 8000):**
+```bash
+curl -sS -X POST http://localhost:8000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Tell me about the latest developments in quantum computing"}' | jq
+
+curl -sS -X POST http://localhost:8000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Find me the best pizza places in Chicago and New York"}' | jq
+```
+
+20) Adding New Toolsp://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I need to timestamp this event. Can you tell me the current time?"}' | jq
+```
+
+**Real-world scenario combining multiple functions:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I am planning a business trip. What time is it now? I will be driving 200 kilometers - how many miles is that? Find me upscale restaurants in London, UK. And tell me the latest business news."}' | jq
+```or `get_google_places`, ensure `APIFY_TOKEN` is valid
 - Apify runs can fail if quota is exceeded or token is invalid
 - The function polls for up to 2 minutes; very large queries may time out
 
@@ -258,7 +426,7 @@ wait
 - **API Costs:** API usage will consume OpenAI/Gemini credits; the server prints a crude cost estimate to the console (OpenAI only) and returns tokens/cost estimates in the JSON response.
 - **Rate Limits:** Be mindful of rate limits on NewsAPI, Apify, OpenAI, and Gemini when testing with multiple requests.
 - **Tool Registry:** All tools are registered in `server.js` using `registerTool()` from `tools.js`. To add new tools:
-  1. Implement the function in `functions.js`
+Last updated: November 29, 2025`functions.js`
   2. Register it in `server.js` with JSON Schema parameters
   3. The tool automatically becomes available to both OpenAI and Gemini endpoints
 
