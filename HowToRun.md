@@ -56,7 +56,7 @@ The project uses a clean tool registry pattern:
 
 - **server.js** - Express server with two endpoints:
   - `POST /query` - OpenAI function calling (gpt-4o)
-  - `POST /query-gemini` - Google Gemini function calling (gemini-2.5-flash-lite)
+  - `POST /query-gemini` - Google Gemini function calling (gemini-2.5-flash)
 
 5) Available Endpoints
 
@@ -102,10 +102,39 @@ curl -sS -X POST http://localhost:3000/query \
 
 7) Example: Use Gemini endpoint
 
+**Get current time:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"What time is it?"}' | jq
+```
+
+**Convert units:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Convert 100 kilometers to miles"}' | jq
+```
+
+**Find places:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Find top-rated Italian restaurants in Chicago"}' | jq
+```
+
+**Get news:**
 ```bash
 curl -sS -X POST http://localhost:3000/query-gemini \
   -H 'Content-Type: application/json' \
   -d '{"query":"What are the latest developments in quantum computing?"}' | jq
+```
+
+**Multi-tool query (may trigger multiple function calls):**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"What time is it and convert 25 Celsius to Fahrenheit?"}' | jq
 ```
 
 8) Example: Test the new demo tools
@@ -200,7 +229,34 @@ curl -sS -X POST http://localhost:3000/query-gemini \
   -d '{"query":"What is 100 kilometers in miles?"}' | jq
 ```
 
-13) Repeated function calling within a single natural-language session
+13) Multi-Tool Queries (Single Request, Multiple Function Calls)
+
+Both endpoints support queries that trigger multiple function calls in a single request. The model decides which tools to call based on the query.
+
+**OpenAI - Multiple tool calls:**
+```bash
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"What time is it and also convert 30 Celsius to Fahrenheit?"}' | jq
+```
+
+**Gemini - Multiple tool calls:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Tell me the current time and convert 50 miles to kilometers"}' | jq
+```
+
+**Complex multi-tool query:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I need three things: current time, convert 100 Fahrenheit to Celsius, and find coffee shops in Seattle"}' | jq
+```
+
+Note: Whether the model calls multiple tools depends on its interpretation of the query. Some models may choose to call tools sequentially or combine information differently.
+
+14) Chaining Requests (Multi-Turn Conversations)
 
 The server flow interprets an incoming query, calls a function once if requested, then sends the results back to the model for summarization. It doesn't currently support multi-turn stateful conversations in a single HTTP call (i.e., multiple back-and-forth function calls in the same request). To simulate multi-step function calling you can:
 
@@ -218,7 +274,7 @@ summary=$(echo "$places_json" | jq -r '.summary // ""')
 curl -sS -X POST http://localhost:3000/query -H 'Content-Type: application/json' -d "{\"query\":\"Summarize these places and recommend the top 3 for a remote worker: $summary\"}" | jq
 ```
 
-14) Testing high-frequency/multiple function calls (load testing)
+15) Testing high-frequency/multiple function calls (load testing)
 
 Simple rapid-fire test (caution: this will use API credits):
 
@@ -229,7 +285,7 @@ done
 wait
 ```
 
-15) Troubleshooting
+16) Troubleshooting
 
 **Missing API Keys:**
 - If you see errors about missing keys, ensure `.env` contains all required variables (OPENAI_API_KEY, GEMINI_API_KEY, NEWS_API_KEY, APIFY_TOKEN)
@@ -247,12 +303,13 @@ wait
 
 **Gemini Specific:**
 - Ensure `GEMINI_API_KEY` is set in `.env`
-- The `/query-gemini` endpoint uses the `gemini-2.5-flash-lite` model by default
+- The `/query-gemini` endpoint uses the `gemini-2.5-flash` model
 - Gemini's function calling may have different behavior than OpenAI
 - The server uses the `@google/genai` package with the `GoogleGenAI` client
-- API calls follow the pattern: `genai.models.generateContent()` with model, tools, systemInstruction, and contents in a single config object
+- Function calling uses the multi-turn pattern: first call gets function calls, execute them, then send results back wrapped in `{ functionResponse: { name, response: { result } } }`
+- Tools are passed via the `config` object, not as a top-level parameter
 
-16) Notes and Safety
+17) Notes and Safety
 
 - **External APIs:** Each request may call out to external APIs (News API, Apify). Those calls can be slow — adjust client timeouts accordingly.
 - **API Costs:** API usage will consume OpenAI/Gemini credits; the server prints a crude cost estimate to the console (OpenAI only) and returns tokens/cost estimates in the JSON response.
@@ -262,7 +319,7 @@ wait
   2. Register it in `server.js` with JSON Schema parameters
   3. The tool automatically becomes available to both OpenAI and Gemini endpoints
 
-17) Example: Full cURL request with explicit parameters
+18) Example: Full cURL request with explicit parameters
 
 Because the server relies on the model to choose the function, you can test the underlying function directly by calling either endpoint with an explicit natural-language query that mentions the arguments:
 
@@ -296,7 +353,7 @@ curl -sS -X POST http://localhost:3000/query \
   -d '{"query":"What is the current server time?"}' | jq
 ```
 
-18) Adding New Tools
+19) Adding New Tools
 
 To add a new tool to the system:
 
@@ -341,4 +398,4 @@ If you'd like, I can add a tiny Node or Python script to call the functions dire
 
 ---
 
-Last verified: October 26, 2025
+Last verified: December 5, 2025
