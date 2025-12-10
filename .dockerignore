@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Environment files (secrets should be passed at runtime)
+.env
+.env.*
+!.env.example
+
+# Python virtual environment
+.venv/
+__pycache__/
+*.pyc
+
+# Python directory (not needed for Node.js server)
+python/
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+LICENSE
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test files
+*.test.js
+*.spec.js
+__tests__/
+coverage/
