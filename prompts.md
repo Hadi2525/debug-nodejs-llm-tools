@@ -7,3 +7,14 @@
 2. Now I want you to add the apify google maps scraper as another tool to the existing code. Make sure to update the function calling structure and consider proper handling of the function calls and the results should be structured in a JSON output taylored for the openai api message list formation.
 
 3. Now I want you to add the google gemini api as another llm option to the existing code. Make sure to update the function calling structure and consider proper handling of the function calls and the results should be structured in a JSON output taylored for the openai api message list formation. Make sure to use the google genai npm package for this.
+
+4. Add two more simple tools to the existing code: a unit converter (Celsius to Fahrenheit, Fahrenheit to Celsius, km to miles) and a get_time function that returns the current server time. Update the documentation accordingly.
+
+5. Create a Python version of the server using FastAPI with the same tools and endpoints. The Python server should have the same structure with separate files for functions, tools, and the server.
+
+6. Create Dockerfiles and .dockerignore files for both the Node.js and Python servers. The Dockerfiles should:
+   - Use lightweight base images (node:20-alpine for JS, python:3.12-slim for Python)
+   - Copy only essential application files
+   - Install production dependencies only
+   - Expose the appropriate ports (3000 for Node.js, 8000 for Python)
+   - The .dockerignore files should exclude node_modules, .env files, documentation, virtual environments, cache files, and other non-essential files to keep the images small.

@@ -557,10 +557,81 @@ import { get_latest_news, get_google_places, convert_units, get_time, my_new_too
 
 The tool will automatically be available to both OpenAI and Gemini endpoints!
 
+20) Docker Deployment
+
+Both the Node.js and Python servers can be containerized using Docker.
+
+**20.1) Node.js Server (port 3000)**
+
+Build and run from the project root:
+
+```bash
+# Build the image
+docker build -t debug-nodejs-llm-tools .
+
+# Run the container (pass environment variables)
+docker run -p 3000:3000 --env-file .env debug-nodejs-llm-tools
+
+# Or pass environment variables individually
+docker run -p 3000:3000 \
+  -e OPENAI_API_KEY=sk-... \
+  -e GEMINI_API_KEY=... \
+  -e NEWS_API_KEY=... \
+  -e APIFY_TOKEN=... \
+  debug-nodejs-llm-tools
+```
+
+**20.2) Python/FastAPI Server (port 8000)**
+
+Build and run from the `python/` directory:
+
+```bash
+cd python
+
+# Build the image
+docker build -t debug-python-llm-tools .
+
+# Run the container
+docker run -p 8000:8000 --env-file .env debug-python-llm-tools
+
+# Or pass environment variables individually
+docker run -p 8000:8000 \
+  -e OPENAI_API_KEY=sk-... \
+  -e GEMINI_API_KEY=... \
+  -e NEWS_API_KEY=... \
+  -e APIFY_TOKEN=... \
+  debug-python-llm-tools
+```
+
+**20.3) Run Both Containers Together**
+
+```bash
+# Start Node.js server on port 3000
+docker run -d --name nodejs-server -p 3000:3000 --env-file .env debug-nodejs-llm-tools
+
+# Start Python server on port 8000
+docker run -d --name python-server -p 8000:8000 --env-file python/.env debug-python-llm-tools
+
+# Test both
+curl -sS -X POST http://localhost:3000/query -H 'Content-Type: application/json' -d '{"query":"What time is it?"}' | jq
+curl -sS -X POST http://localhost:8000/query -H 'Content-Type: application/json' -d '{"query":"What time is it?"}' | jq
+
+# Stop containers
+docker stop nodejs-server python-server
+docker rm nodejs-server python-server
+```
+
+**20.4) Docker Notes**
+
+- The `.dockerignore` files exclude unnecessary files (node_modules, .env, docs, etc.) to keep images small
+- Environment variables should be passed at runtime, not baked into the image
+- The Node.js image uses `node:20-alpine` (~180MB) for a smaller footprint
+- The Python image uses `python:3.12-slim` (~150MB) for a smaller footprint
+
 ---
 
 If you'd like, I can add a tiny Node or Python script to call the functions directly (bypassing LLMs) for faster local testing. Ask for "add test runner" and I will create it.
 
 ---
 
-Last verified: December 5, 2025
+Last verified: December 10, 2025
