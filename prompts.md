@@ -18,3 +18,16 @@
    - Install production dependencies only
    - Expose the appropriate ports (3000 for Node.js, 8000 for Python)
    - The .dockerignore files should exclude node_modules, .env files, documentation, virtual environments, cache files, and other non-essential files to keep the images small.
+7. Add comprehensive documentation to the HowToRun.md file explaining how to push the Docker images to Google Cloud Container Registry (GCR) and Artifact Registry. Include:
+   - Prerequisites (Google Cloud SDK, project setup, billing)
+   - Step-by-step authentication with gcloud
+   - Finding the correct PROJECT_ID (not Project Name) and configuring the project
+   - Enabling the Artifact Registry API
+   - Configuring Docker for GCR authentication
+   - Tagging Docker images with the GCR path format
+   - Pushing images to GCR with detailed commands
+   - Verifying pushed images and pulling on other machines
+   - A troubleshooting section covering common errors like PERMISSION_DENIED, API not enabled, and billing issues
+   - An alternative section for using the newer Google Artifact Registry format with region-specific repositories
+   - Do NOT include any personal project IDs or credentials in the documentation
+```

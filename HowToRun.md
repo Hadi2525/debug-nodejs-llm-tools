@@ -630,8 +630,150 @@ docker rm nodejs-server python-server
 
 ---
 
+21) Push Docker Image to Google Cloud Artifact Registry (GCR)
+
+This section explains how to push your local Docker images to Google Cloud Container Registry (gcr.io).
+
+**21.1) Prerequisites**
+
+- Google Cloud SDK (`gcloud`) installed
+- A Google Cloud project with billing enabled
+- Docker installed and running
+
+**21.2) Authenticate with Google Cloud**
+
+```bash
+# Login to Google Cloud
+gcloud auth login
+
+# Verify your account
+gcloud auth list
+```
+
+**21.3) Find Your Project ID**
+
+Important: Google Cloud uses **Project ID**, not Project Name. They are often different!
+
+```bash
+# List all projects to find the correct PROJECT_ID
+gcloud projects list
+```
+
+Example output:
+```
+PROJECT_ID              NAME                 PROJECT_NUMBER
+my-project-id-123456    My Project Name      123456789012
+```
+
+Use the value in the `PROJECT_ID` column, not the `NAME` column.
+
+**21.4) Set Your Project**
+
+```bash
+gcloud config set project <YOUR_PROJECT_ID>
+
+# Verify the project is set
+gcloud config get-value project
+```
+
+**21.5) Enable the Artifact Registry API**
+
+```bash
+gcloud services enable artifactregistry.googleapis.com
+```
+
+If you get a permission error, you can also enable it via the Google Cloud Console:
+1. Go to: https://console.cloud.google.com/apis/library/artifactregistry.googleapis.com
+2. Select your project
+3. Click "Enable"
+
+Note: Wait 2-3 minutes after enabling for the change to propagate.
+
+**21.6) Configure Docker for GCR**
+
+```bash
+gcloud auth configure-docker gcr.io
+```
+
+This updates your Docker config to use gcloud credentials for gcr.io.
+
+**21.7) Tag Your Local Image**
+
+```bash
+# Format: gcr.io/<PROJECT_ID>/<IMAGE_NAME>:<TAG>
+docker tag debug-nodejs-llm-tools gcr.io/<YOUR_PROJECT_ID>/debug-nodejs-llm-tools:v0.1
+
+# For the Python image
+docker tag debug-python-llm-tools gcr.io/<YOUR_PROJECT_ID>/debug-python-llm-tools:v0.1
+```
+
+**21.8) Push to GCR**
+
+```bash
+# Push Node.js image
+docker push gcr.io/<YOUR_PROJECT_ID>/debug-nodejs-llm-tools:v0.1
+
+# Push Python image
+docker push gcr.io/<YOUR_PROJECT_ID>/debug-python-llm-tools:v0.1
+```
+
+**21.9) Verify the Push**
+
+```bash
+# List images in your GCR
+gcloud container images list --repository=gcr.io/<YOUR_PROJECT_ID>
+
+# List tags for a specific image
+gcloud container images list-tags gcr.io/<YOUR_PROJECT_ID>/debug-nodejs-llm-tools
+```
+
+**21.10) Pull Image from GCR (on another machine)**
+
+```bash
+# Authenticate Docker on the new machine
+gcloud auth configure-docker gcr.io
+
+# Pull the image
+docker pull gcr.io/<YOUR_PROJECT_ID>/debug-nodejs-llm-tools:v0.1
+```
+
+**21.11) Troubleshooting**
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `Artifact Registry API has not been used` | API not enabled | Run `gcloud services enable artifactregistry.googleapis.com` |
+| `PERMISSION_DENIED` | Wrong project or no access | Verify project with `gcloud projects list` and set correct project |
+| `does not have permission to access projects instance` | Using project name instead of ID | Use the PROJECT_ID from `gcloud projects list`, not the display name |
+| `denied: Token exchange failed` | Docker not configured | Run `gcloud auth configure-docker gcr.io` |
+| Billing error | Billing not enabled | Link a billing account at https://console.cloud.google.com/billing |
+
+**21.12) Using Artifact Registry (Newer Alternative)**
+
+Google recommends Artifact Registry over Container Registry. The format is slightly different:
+
+```bash
+# Configure Docker for Artifact Registry
+gcloud auth configure-docker <REGION>-docker.pkg.dev
+
+# Create a repository (one-time setup)
+gcloud artifacts repositories create docker-repo \
+  --repository-format=docker \
+  --location=<REGION> \
+  --description="Docker repository"
+
+# Tag for Artifact Registry
+docker tag debug-nodejs-llm-tools <REGION>-docker.pkg.dev/<PROJECT_ID>/docker-repo/debug-nodejs-llm-tools:v0.1
+
+# Push
+docker push <REGION>-docker.pkg.dev/<PROJECT_ID>/docker-repo/debug-nodejs-llm-tools:v0.1
+```
+
+Replace `<REGION>` with your preferred region (e.g., `us-central1`, `us`, `europe-west1`).
+
+---
+
 If you'd like, I can add a tiny Node or Python script to call the functions directly (bypassing LLMs) for faster local testing. Ask for "add test runner" and I will create it.
 
 ---
 
-Last verified: December 10, 2025
+Last verified: December 15, 2025
