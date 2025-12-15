@@ -56,7 +56,7 @@ The project uses a clean tool registry pattern:
 
 - **server.js** - Express server with two endpoints:
   - `POST /query` - OpenAI function calling (gpt-4o)
-  - `POST /query-gemini` - Google Gemini function calling (gemini-2.5-flash-lite)
+  - `POST /query-gemini` - Google Gemini function calling (gemini-2.5-flash)
 
 5) Available Endpoints
 
@@ -104,6 +104,28 @@ curl -sS -X POST http://localhost:3000/query \
 
 7) Example: Use Gemini endpoint
 
+**Get current time:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"What time is it?"}' | jq
+```
+
+**Convert units:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Convert 100 kilometers to miles"}' | jq
+```
+
+**Find places:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Find top-rated Italian restaurants in Chicago"}' | jq
+```
+
+**Get news:**
 ```bash
 curl -sS -X POST http://localhost:3000/query-gemini \
   -H 'Content-Type: application/json' \
@@ -208,7 +230,14 @@ curl -sS -X POST http://localhost:3000/query \
   -H 'Content-Type: application/json' \
   -d '{"query":"What are the latest developments in quantum computing?"}' | jq
 
-sleep 1
+**Multi-tool query (may trigger multiple function calls):**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"What time is it and convert 25 Celsius to Fahrenheit?"}' | jq
+```
+
+8) Example: Test the new demo tools
 
 curl -sS -X POST http://localhost:3000/query \
   -H 'Content-Type: application/json' \
@@ -325,12 +354,38 @@ curl -sS -X POST http://localhost:3000/query \
 
 17) Notes and Safety
 curl -sS -X POST http://localhost:3000/query-gemini \
-**Function Not Called:**
-- If OpenAI/Gemini returns unexpected behavior (no function call), try making the query more specific about what information you need
-- Use natural language that clearly indicates you need real-time data, current information, or external resources
-- Avoid overly vague queries - be specific about locations, topics, or values you want to convert
-- Check server logs (printed to console) for timestamped details
-13) Repeated function calling within a single natural-language session
+  -H 'Content-Type: application/json' \
+  -d '{"query":"What is 100 kilometers in miles?"}' | jq
+```
+
+13) Multi-Tool Queries (Single Request, Multiple Function Calls)
+
+Both endpoints support queries that trigger multiple function calls in a single request. The model decides which tools to call based on the query.
+
+**OpenAI - Multiple tool calls:**
+```bash
+curl -sS -X POST http://localhost:3000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"What time is it and also convert 30 Celsius to Fahrenheit?"}' | jq
+```
+
+**Gemini - Multiple tool calls:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Tell me the current time and convert 50 miles to kilometers"}' | jq
+```
+
+**Complex multi-tool query:**
+```bash
+curl -sS -X POST http://localhost:3000/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"I need three things: current time, convert 100 Fahrenheit to Celsius, and find coffee shops in Seattle"}' | jq
+```
+
+Note: Whether the model calls multiple tools depends on its interpretation of the query. Some models may choose to call tools sequentially or combine information differently.
+
+14) Chaining Requests (Multi-Turn Conversations)
 
 The server flow interprets an incoming query, calls a function once if requested, then sends the results back to the model for summarization. It doesn't currently support multi-turn stateful conversations in a single HTTP call (i.e., multiple back-and-forth function calls in the same request). To simulate multi-step function calling you can:
 
@@ -345,19 +400,17 @@ curl -sS -X POST http://localhost:3000/query \
   -d '{"query":"I want to stay updated on artificial intelligence. What has been happening recently in this field?"}' | jq
 ```
 
-**Places (implicit):**
+15) Testing high-frequency/multiple function calls (load testing)
+
+Simple rapid-fire test (caution: this will use API credits):
+
 ```bash
 curl -sS -X POST http://localhost:3000/query \
   -H 'Content-Type: application/json' \
   -d '{"query":"I am visiting Calgary next week and would love to try some great coffee. Any recommendations?"}' | jq
 ```
 
-**Temperature conversion (implicit):**
-```bash
-curl -sS -X POST http://localhost:3000/query \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"It is 32 degrees Fahrenheit outside. Is that cold? What is it in Celsius?"}' | jq
-```
+16) Troubleshooting
 
 **Distance conversion (implicit):**
 ```bash
@@ -415,12 +468,13 @@ curl -sS -X POST http://localhost:3000/query-gemini \
 
 **Gemini Specific:**
 - Ensure `GEMINI_API_KEY` is set in `.env`
-- The `/query-gemini` endpoint uses the `gemini-2.5-flash-lite` model by default
+- The `/query-gemini` endpoint uses the `gemini-2.5-flash` model
 - Gemini's function calling may have different behavior than OpenAI
 - The server uses the `@google/genai` package with the `GoogleGenAI` client
-- API calls follow the pattern: `genai.models.generateContent()` with model, tools, systemInstruction, and contents in a single config object
+- Function calling uses the multi-turn pattern: first call gets function calls, execute them, then send results back wrapped in `{ functionResponse: { name, response: { result } } }`
+- Tools are passed via the `config` object, not as a top-level parameter
 
-16) Notes and Safety
+17) Notes and Safety
 
 - **External APIs:** Each request may call out to external APIs (News API, Apify). Those calls can be slow — adjust client timeouts accordingly.
 - **API Costs:** API usage will consume OpenAI/Gemini credits; the server prints a crude cost estimate to the console (OpenAI only) and returns tokens/cost estimates in the JSON response.
@@ -430,7 +484,7 @@ Last updated: November 29, 2025`functions.js`
   2. Register it in `server.js` with JSON Schema parameters
   3. The tool automatically becomes available to both OpenAI and Gemini endpoints
 
-17) Example: Full cURL request with explicit parameters
+18) Example: Full cURL request with explicit parameters
 
 Because the server relies on the model to choose the function, you can test the underlying function directly by calling either endpoint with an explicit natural-language query that mentions the arguments:
 
@@ -464,7 +518,7 @@ curl -sS -X POST http://localhost:3000/query \
   -d '{"query":"What is the current server time?"}' | jq
 ```
 
-18) Adding New Tools
+19) Adding New Tools
 
 To add a new tool to the system:
 
@@ -503,10 +557,223 @@ import { get_latest_news, get_google_places, convert_units, get_time, my_new_too
 
 The tool will automatically be available to both OpenAI and Gemini endpoints!
 
+20) Docker Deployment
+
+Both the Node.js and Python servers can be containerized using Docker.
+
+**20.1) Node.js Server (port 3000)**
+
+Build and run from the project root:
+
+```bash
+# Build the image
+docker build -t debug-nodejs-llm-tools .
+
+# Run the container (pass environment variables)
+docker run -p 3000:3000 --env-file .env debug-nodejs-llm-tools
+
+# Or pass environment variables individually
+docker run -p 3000:3000 \
+  -e OPENAI_API_KEY=sk-... \
+  -e GEMINI_API_KEY=... \
+  -e NEWS_API_KEY=... \
+  -e APIFY_TOKEN=... \
+  debug-nodejs-llm-tools
+```
+
+**20.2) Python/FastAPI Server (port 8000)**
+
+Build and run from the `python/` directory:
+
+```bash
+cd python
+
+# Build the image
+docker build -t debug-python-llm-tools .
+
+# Run the container
+docker run -p 8000:8000 --env-file .env debug-python-llm-tools
+
+# Or pass environment variables individually
+docker run -p 8000:8000 \
+  -e OPENAI_API_KEY=sk-... \
+  -e GEMINI_API_KEY=... \
+  -e NEWS_API_KEY=... \
+  -e APIFY_TOKEN=... \
+  debug-python-llm-tools
+```
+
+**20.3) Run Both Containers Together**
+
+```bash
+# Start Node.js server on port 3000
+docker run -d --name nodejs-server -p 3000:3000 --env-file .env debug-nodejs-llm-tools
+
+# Start Python server on port 8000
+docker run -d --name python-server -p 8000:8000 --env-file python/.env debug-python-llm-tools
+
+# Test both
+curl -sS -X POST http://localhost:3000/query -H 'Content-Type: application/json' -d '{"query":"What time is it?"}' | jq
+curl -sS -X POST http://localhost:8000/query -H 'Content-Type: application/json' -d '{"query":"What time is it?"}' | jq
+
+# Stop containers
+docker stop nodejs-server python-server
+docker rm nodejs-server python-server
+```
+
+**20.4) Docker Notes**
+
+- The `.dockerignore` files exclude unnecessary files (node_modules, .env, docs, etc.) to keep images small
+- Environment variables should be passed at runtime, not baked into the image
+- The Node.js image uses `node:20-alpine` (~180MB) for a smaller footprint
+- The Python image uses `python:3.12-slim` (~150MB) for a smaller footprint
+
+---
+
+21) Push Docker Image to Google Cloud Artifact Registry (GCR)
+
+This section explains how to push your local Docker images to Google Cloud Container Registry (gcr.io).
+
+**21.1) Prerequisites**
+
+- Google Cloud SDK (`gcloud`) installed
+- A Google Cloud project with billing enabled
+- Docker installed and running
+
+**21.2) Authenticate with Google Cloud**
+
+```bash
+# Login to Google Cloud
+gcloud auth login
+
+# Verify your account
+gcloud auth list
+```
+
+**21.3) Find Your Project ID**
+
+Important: Google Cloud uses **Project ID**, not Project Name. They are often different!
+
+```bash
+# List all projects to find the correct PROJECT_ID
+gcloud projects list
+```
+
+Example output:
+```
+PROJECT_ID              NAME                 PROJECT_NUMBER
+my-project-id-123456    My Project Name      123456789012
+```
+
+Use the value in the `PROJECT_ID` column, not the `NAME` column.
+
+**21.4) Set Your Project**
+
+```bash
+gcloud config set project <YOUR_PROJECT_ID>
+
+# Verify the project is set
+gcloud config get-value project
+```
+
+**21.5) Enable the Artifact Registry API**
+
+```bash
+gcloud services enable artifactregistry.googleapis.com
+```
+
+If you get a permission error, you can also enable it via the Google Cloud Console:
+1. Go to: https://console.cloud.google.com/apis/library/artifactregistry.googleapis.com
+2. Select your project
+3. Click "Enable"
+
+Note: Wait 2-3 minutes after enabling for the change to propagate.
+
+**21.6) Configure Docker for GCR**
+
+```bash
+gcloud auth configure-docker gcr.io
+```
+
+This updates your Docker config to use gcloud credentials for gcr.io.
+
+**21.7) Tag Your Local Image**
+
+```bash
+# Format: gcr.io/<PROJECT_ID>/<IMAGE_NAME>:<TAG>
+docker tag debug-nodejs-llm-tools gcr.io/<YOUR_PROJECT_ID>/debug-nodejs-llm-tools:v0.1
+
+# For the Python image
+docker tag debug-python-llm-tools gcr.io/<YOUR_PROJECT_ID>/debug-python-llm-tools:v0.1
+```
+
+**21.8) Push to GCR**
+
+```bash
+# Push Node.js image
+docker push gcr.io/<YOUR_PROJECT_ID>/debug-nodejs-llm-tools:v0.1
+
+# Push Python image
+docker push gcr.io/<YOUR_PROJECT_ID>/debug-python-llm-tools:v0.1
+```
+
+**21.9) Verify the Push**
+
+```bash
+# List images in your GCR
+gcloud container images list --repository=gcr.io/<YOUR_PROJECT_ID>
+
+# List tags for a specific image
+gcloud container images list-tags gcr.io/<YOUR_PROJECT_ID>/debug-nodejs-llm-tools
+```
+
+**21.10) Pull Image from GCR (on another machine)**
+
+```bash
+# Authenticate Docker on the new machine
+gcloud auth configure-docker gcr.io
+
+# Pull the image
+docker pull gcr.io/<YOUR_PROJECT_ID>/debug-nodejs-llm-tools:v0.1
+```
+
+**21.11) Troubleshooting**
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `Artifact Registry API has not been used` | API not enabled | Run `gcloud services enable artifactregistry.googleapis.com` |
+| `PERMISSION_DENIED` | Wrong project or no access | Verify project with `gcloud projects list` and set correct project |
+| `does not have permission to access projects instance` | Using project name instead of ID | Use the PROJECT_ID from `gcloud projects list`, not the display name |
+| `denied: Token exchange failed` | Docker not configured | Run `gcloud auth configure-docker gcr.io` |
+| Billing error | Billing not enabled | Link a billing account at https://console.cloud.google.com/billing |
+
+**21.12) Using Artifact Registry (Newer Alternative)**
+
+Google recommends Artifact Registry over Container Registry. The format is slightly different:
+
+```bash
+# Configure Docker for Artifact Registry
+gcloud auth configure-docker <REGION>-docker.pkg.dev
+
+# Create a repository (one-time setup)
+gcloud artifacts repositories create docker-repo \
+  --repository-format=docker \
+  --location=<REGION> \
+  --description="Docker repository"
+
+# Tag for Artifact Registry
+docker tag debug-nodejs-llm-tools <REGION>-docker.pkg.dev/<PROJECT_ID>/docker-repo/debug-nodejs-llm-tools:v0.1
+
+# Push
+docker push <REGION>-docker.pkg.dev/<PROJECT_ID>/docker-repo/debug-nodejs-llm-tools:v0.1
+```
+
+Replace `<REGION>` with your preferred region (e.g., `us-central1`, `us`, `europe-west1`).
+
 ---
 
 If you'd like, I can add a tiny Node or Python script to call the functions directly (bypassing LLMs) for faster local testing. Ask for "add test runner" and I will create it.
 
 ---
 
-Last verified: October 26, 2025
+Last verified: December 15, 2025

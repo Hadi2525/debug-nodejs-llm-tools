@@ -189,7 +189,9 @@ app.post("/query", async (req, res) => {
 });
 
 // ==================================================================
-// POST /query-gemini  -> Gemini function calling (multi-turn pattern)
+// POST /query-gemini  -> Gemini function calling using generateContent
+// Pattern: Multi-turn conversation with functionResponse wrapped in { result }
+// See testTool.js for a minimal working example of this pattern
 // ==================================================================
 app.post("/query-gemini", async (req, res) => {
   const { query } = req.body || {};
@@ -198,62 +200,66 @@ app.post("/query-gemini", async (req, res) => {
   log("📩 /query-gemini", { query });
 
   try {
-    // Step 1: First turn — model may request function calls
+    // Configure tools
+    const toolsConfig = listToolsForGemini();
+
+    // Step 1: Send the user query
     const first = await genai.models.generateContent({
-      model: "gemini-2.5-flash-lite", // pick your preferred Gemini model
-      // Provide tools (function declarations) to the model
-      tools: listToolsForGemini(), // docs: function calling & tools :contentReference[oaicite:4]{index=4}
-      systemInstruction:
-        "You are a concise assistant. Use tools when they add factual value. Keep answers tight.",
+      model: "gemini-2.5-flash",
       contents: query,
+      config: {
+        tools: toolsConfig,
+        systemInstruction:
+          "You are a concise assistant. Use tools when the query sounds like they need you to search for them. Keep answers tight.",
+      },
     });
 
-    const candidate = first.candidates?.[0];
-    const parts = candidate?.content?.parts || [];
-    const functionCalls = parts
-      .map((p) => p.functionCall)
-      .filter(Boolean); // [{ name, args }]
+    // Check if the model requested function calls
+    const functionCalls = first.functionCalls || [];
 
     if (!functionCalls.length) {
       // No tools needed; return model text
-      const text = parts.map((p) => p.text).filter(Boolean).join("\n");
-      return res.json({ response: text || "(no text)" });
+      return res.json({ response: first.text || "(no text)" });
     }
 
-    // Step 2: Execute each function call
-    const toolResults = [];
+    // Step 2: Execute each function call and build function response parts
+    const functionResponseParts = [];
     for (const fc of functionCalls) {
       const { name, args } = fc;
       log(`⚙️ Gemini tool call: ${name}`, args);
       const result = await dispatch(name, args || {});
-      // Build a tool response part for Gemini
-      toolResults.push({
-        functionResponse: { name, response: result },
+      
+      // Build a function response part matching the working testTool.js pattern
+      // The response must wrap the result in { result: ... }
+      functionResponseParts.push({
+        functionResponse: {
+          name: name,
+          response: { result }
+        }
       });
     }
 
-    // Step 3: Send tool results back, ask for final answer
+    // Step 3: Build the conversation history and send back for final answer
+    // Get the model's response with function calls (as shown in testTool.js)
+    const modelContent = first.candidates[0].content;
+
     const second = await genai.models.generateContent({
-      model: "gemini-2.5-flash-lite",
-      tools: listToolsForGemini(),
-      systemInstruction:
-        "You are a concise assistant. Use tools when they add factual value. Keep answers tight.",
+      model: "gemini-2.5-flash",
       contents: [
         { role: "user", parts: [{ text: query }] },
-        candidate.content, // the assistant turn with functionCalls
-        { role: "function", parts: toolResults },    // return the results
+        modelContent,  // The model's response with function calls
+        { role: "user", parts: functionResponseParts },
       ],
+      config: {
+        tools: toolsConfig,
+        systemInstruction:
+          "You are a concise assistant. Summarize the tool results concisely.",
+      },
     });
-
-    const finalText =
-      second.candidates?.[0]?.content?.parts
-        ?.map((p) => p.text)
-        ?.filter(Boolean)
-        ?.join("\n") || "";
 
     return res.json({
       gemini_tool_calls: functionCalls.map((c) => ({ name: c.name })),
-      summary: finalText,
+      summary: second.text || "",
     });
   } catch (err) {
     log("❌ /query-gemini error", err.message);
