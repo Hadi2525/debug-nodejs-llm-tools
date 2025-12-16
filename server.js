@@ -3,6 +3,7 @@ import express from "express";
 import dotenv from "dotenv";
 import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
+import fetch from "node-fetch";
 
 import {
   registerTool,
@@ -20,8 +21,21 @@ import {
 
 dotenv.config();
 
+const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0';
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+
 const app = express();
 app.use(express.json());
+
+// Health check endpoint for Cloud Run
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'Server is running', baseUrl: BASE_URL });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy', baseUrl: BASE_URL });
+});
 
 // -----------------------
 // Register your tools
@@ -90,10 +104,34 @@ registerTool(
 );
 
 // -----------------------
-// Clients
+// Clients (lazy initialization)
 // -----------------------
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY }); // Chat Completions with tools :contentReference[oaicite:2]{index=2}
-const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });   // Gemini function calling :contentReference[oaicite:3]{index=3}
+let openai = null;
+let genai = null;
+
+const getOpenAIClient = () => {
+  if (!openai) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is not set');
+    }
+    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return openai;
+};
+
+const getGeminiClient = () => {
+  if (!genai) {
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error('GEMINI_API_KEY environment variable is not set');
+    }
+    // Pass custom fetch to ensure compatibility
+    genai = new GoogleGenAI({ 
+      apiKey: process.env.GEMINI_API_KEY,
+      fetch: fetch
+    });
+  }
+  return genai;
+};
 
 // -----------------------
 // Helpers
@@ -124,6 +162,7 @@ app.post("/query", async (req, res) => {
 
   try {
     // Step 1: Ask OpenAI; give it the tool catalog
+    const openai = getOpenAIClient();
     const first = await openai.chat.completions.create({
       model: "gpt-4o", // any tool-capable model (your code had gpt-4.1)
       messages: [{ role: "user", content: query }],
@@ -204,68 +243,88 @@ app.post("/query-gemini", async (req, res) => {
     const toolsConfig = listToolsForGemini();
 
     // Step 1: Send the user query
-    const first = await genai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: query,
-      config: {
-        tools: toolsConfig,
-        systemInstruction:
-          "You are a concise assistant. Use tools when the query sounds like they need you to search for them. Keep answers tight.",
-      },
-    });
-
-    // Check if the model requested function calls
-    const functionCalls = first.functionCalls || [];
-
-    if (!functionCalls.length) {
-      // No tools needed; return model text
-      return res.json({ response: first.text || "(no text)" });
-    }
-
-    // Step 2: Execute each function call and build function response parts
-    const functionResponseParts = [];
-    for (const fc of functionCalls) {
-      const { name, args } = fc;
-      log(`⚙️ Gemini tool call: ${name}`, args);
-      const result = await dispatch(name, args || {});
-      
-      // Build a function response part matching the working testTool.js pattern
-      // The response must wrap the result in { result: ... }
-      functionResponseParts.push({
-        functionResponse: {
-          name: name,
-          response: { result }
-        }
+    const genai = getGeminiClient();
+    log("🔧 Initialized Gemini client");
+    
+    try {
+      const first = await genai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: query,
+        config: {
+          tools: toolsConfig,
+          systemInstruction:
+            "You are a concise assistant. Use tools when the query sounds like they need you to search for them. Keep answers tight.",
+        },
       });
+      log("✅ Gemini generateContent succeeded");
+
+      // Check if the model requested function calls
+      const functionCalls = first.functionCalls || [];
+
+      if (!functionCalls.length) {
+        // No tools needed; return model text
+        return res.json({ response: first.text || "(no text)" });
+      }
+
+      // Step 2: Execute each function call and build function response parts
+      const functionResponseParts = [];
+      for (const fc of functionCalls) {
+        const { name, args } = fc;
+        log(`⚙️ Gemini tool call: ${name}`, args);
+        const result = await dispatch(name, args || {});
+        
+        // Build a function response part matching the working testTool.js pattern
+        // The response must wrap the result in { result: ... }
+        functionResponseParts.push({
+          functionResponse: {
+            name: name,
+            response: { result }
+          }
+        });
+      }
+
+      // Step 3: Build the conversation history and send back for final answer
+      // Get the model's response with function calls (as shown in testTool.js)
+      const modelContent = first.candidates[0].content;
+
+      const second = await genai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [
+          { role: "user", parts: [{ text: query }] },
+          modelContent,  // The model's response with function calls
+          { role: "user", parts: functionResponseParts },
+        ],
+        config: {
+          tools: toolsConfig,
+          systemInstruction:
+            "You are a concise assistant. Summarize the tool results concisely.",
+        },
+      });
+
+      return res.json({
+        gemini_tool_calls: functionCalls.map((c) => ({ name: c.name })),
+        summary: second.text || "",
+      });
+    } catch (apiError) {
+      log("❌ Gemini API Error", {
+        message: apiError.message,
+        code: apiError.code,
+        status: apiError.status,
+        fullError: apiError.toString(),
+        stack: apiError.stack
+      });
+      throw apiError;
     }
-
-    // Step 3: Build the conversation history and send back for final answer
-    // Get the model's response with function calls (as shown in testTool.js)
-    const modelContent = first.candidates[0].content;
-
-    const second = await genai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        { role: "user", parts: [{ text: query }] },
-        modelContent,  // The model's response with function calls
-        { role: "user", parts: functionResponseParts },
-      ],
-      config: {
-        tools: toolsConfig,
-        systemInstruction:
-          "You are a concise assistant. Summarize the tool results concisely.",
-      },
-    });
-
-    return res.json({
-      gemini_tool_calls: functionCalls.map((c) => ({ name: c.name })),
-      summary: second.text || "",
-    });
   } catch (err) {
     log("❌ /query-gemini error", err.message);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ 
+      error: err.message,
+      details: err.toString()
+    });
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => log(`🚀 Server running at http://localhost:${PORT}`));
+app.listen(PORT, HOST, () => {
+  log(`🚀 Server running on port ${PORT}`);
+  log(`📍 Base URL: ${BASE_URL}`);
+});

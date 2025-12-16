@@ -23,8 +23,8 @@
    - Step-by-step authentication with gcloud
    - Finding the correct PROJECT_ID (not Project Name) and configuring the project
    - Enabling the Artifact Registry API
-   - Configuring Docker for GCR authentication
-   - Tagging Docker images with the GCR path format
+   - Configuring Docker for GCP authentication
+   - Tagging Docker images with the GCP path format
    - Pushing images to GCR with detailed commands
    - Verifying pushed images and pulling on other machines
    - A troubleshooting section covering common errors like PERMISSION_DENIED, API not enabled, and billing issues

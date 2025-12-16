@@ -172,7 +172,20 @@ docker push gcr.io/<YOUR_PROJECT_ID>/debug-nodejs-llm-tools:v0.1
 gcloud container images list --repository=gcr.io/<YOUR_PROJECT_ID>
 ```
 
-📚 **See [HowToRun.md](HowToRun.md) for complete GCR & Artifact Registry deployment instructions with troubleshooting.**
+### Step 5: Deploy to Google Cloud Run
+
+```bash
+gcloud run deploy debug-nodejs-llm-tools \
+  --image gcr.io/<YOUR_PROJECT_ID>/debug-nodejs-llm-tools:v0.1 \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars "OPENAI_API_KEY=<YOUR_KEY>,GEMINI_API_KEY=<YOUR_KEY>,NEWS_API_KEY=<YOUR_KEY>,APIFY_TOKEN=<YOUR_TOKEN>,PORT=3000"
+```
+
+Your service will be available at: `https://<SERVICE_NAME>-<HASH>.a.run.app`
+
+📚 **See [HowToRun.md](HowToRun.md) for complete GCR, Cloud Run & Artifact Registry deployment instructions with testing and troubleshooting.**
 
 ---
 
