@@ -1,0 +1,30 @@
+import dotenv from 'dotenv';
+import fetch from 'node-fetch';
+
+dotenv.config();
+
+const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+
+async function testOpenAIMultiConversions() {
+  try {
+    console.log(`🔄 Testing OpenAI Multiple Conversions Query`);
+    console.log(`🌐 Base URL: ${BASE_URL}`);
+    
+    const response = await fetch(`${BASE_URL}/query`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: 'I am traveling from Canada to the US. The temperature here is 20 Celsius and I need to drive 100 kilometers. What are these in Fahrenheit and miles?',
+      }),
+    });
+
+    const data = await response.json();
+    console.log('\n✅ Response:', JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error('❌ Error:', error.message);
+  }
+}
+
+testOpenAIMultiConversions();

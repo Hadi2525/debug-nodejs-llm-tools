@@ -772,8 +772,295 @@ Replace `<REGION>` with your preferred region (e.g., `us-central1`, `us`, `europ
 
 ---
 
-If you'd like, I can add a tiny Node or Python script to call the functions directly (bypassing LLMs) for faster local testing. Ask for "add test runner" and I will create it.
+## 22) Deploy to Google Cloud Run
+
+Google Cloud Run allows you to deploy containerized applications without managing servers. It automatically scales based on traffic and you only pay for the execution time.
+
+### 22.1) Prerequisites for Cloud Run
+
+- Docker image already pushed to GCR or Artifact Registry (see section 21)
+- Google Cloud project with billing enabled
+- `gcloud` CLI installed and authenticated
+
+### 22.2) Deploy Node.js Service to Cloud Run
+
+```bash
+# Deploy from GCR
+gcloud run deploy debug-nodejs-llm-tools \
+  --image gcr.io/<YOUR_PROJECT_ID>/debug-nodejs-llm-tools:v0.1 \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars "OPENAI_API_KEY=<YOUR_KEY>,GEMINI_API_KEY=<YOUR_KEY>,NEWS_API_KEY=<YOUR_KEY>,APIFY_TOKEN=<YOUR_TOKEN>,PORT=3000"
+```
+
+Or from Artifact Registry:
+
+```bash
+gcloud run deploy debug-nodejs-llm-tools \
+  --image us-central1-docker.pkg.dev/<YOUR_PROJECT_ID>/docker-repo/debug-nodejs-llm-tools:v0.1 \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars "OPENAI_API_KEY=<YOUR_KEY>,GEMINI_API_KEY=<YOUR_KEY>,NEWS_API_KEY=<YOUR_KEY>,APIFY_TOKEN=<YOUR_TOKEN>,PORT=3000"
+```
+
+**Important Notes:**
+- `--platform managed` means Cloud Run handles infrastructure (recommended)
+- `--allow-unauthenticated` allows public access (remove for private services)
+- `--region` can be `us-central1`, `us-east1`, `europe-west1`, etc.
+- Replace `<YOUR_KEY>` and `<YOUR_TOKEN>` with actual values
+
+### 22.3) Get Your Cloud Run Service URL
+
+After deployment completes, you'll see output like:
+```
+Service URL: https://debug-nodejs-llm-tools-abc123-uc.a.run.app
+```
+
+Save this URL. You'll use it to test the deployed service.
+
+### 22.4) Verify Cloud Run Deployment
+
+```bash
+# List all deployed services
+gcloud run services list
+
+# Get detailed service info
+gcloud run services describe debug-nodejs-llm-tools --region us-central1
+
+# View logs (tail last 50 lines)
+gcloud run services logs read debug-nodejs-llm-tools --limit 50 --region us-central1
+```
 
 ---
 
-Last verified: December 15, 2025
+## 23) Testing Deployed App on Cloud Run
+
+### 23.1) Set Environment Variables for Testing
+
+```bash
+# Store your Cloud Run URL
+export CLOUD_RUN_URL="https://debug-nodejs-llm-tools-abc123-uc.a.run.app"
+
+# Keep localhost for comparison
+export LOCALHOST_URL="http://localhost:3000"
+```
+
+### 23.2) Using the Test Scripts with Cloud Run
+
+Update the `.env` file with your Cloud Run URL:
+
+```env
+BASE_URL=https://debug-nodejs-llm-tools-abc123-uc.a.run.app
+OPENAI_API_KEY=sk-...
+GEMINI_API_KEY=...
+NEWS_API_KEY=...
+APIFY_TOKEN=...
+PORT=3000
+```
+
+Then run test scripts normally:
+
+```bash
+node tests/test-openai-news.js      # Will hit Cloud Run
+node tests/test-gemini-time.js      # Will hit Cloud Run
+```
+
+### 23.3) Direct cURL Testing Against Cloud Run
+
+**Test OpenAI endpoint:**
+
+```bash
+curl -X POST https://debug-nodejs-llm-tools-abc123-uc.a.run.app/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"What is happening with OpenAI lately?"}'
+```
+
+**Test Gemini endpoint:**
+
+```bash
+curl -X POST https://debug-nodejs-llm-tools-abc123-uc.a.run.app/query-gemini \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"What time is it?"}'
+```
+
+**Test with jq for pretty output:**
+
+```bash
+curl -sS -X POST https://debug-nodejs-llm-tools-abc123-uc.a.run.app/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Convert 100 kilometers to miles"}' | jq
+```
+
+---
+
+## 24) Comparing Localhost vs Cloud Run
+
+### 24.1) Create a Comparison Test Script
+
+Create a file `tests/compare-environments.js`:
+
+```javascript
+import dotenv from 'dotenv';
+import fetch from 'node-fetch';
+
+dotenv.config();
+
+const LOCALHOST_URL = 'http://localhost:3000';
+const CLOUD_RUN_URL = process.env.CLOUD_RUN_URL;
+
+if (!CLOUD_RUN_URL) {
+  console.error('❌ Error: CLOUD_RUN_URL not set in .env');
+  process.exit(1);
+}
+
+async function compareEndpoints(query, endpoint) {
+  const testName = `${endpoint} (${query.substring(0, 40)}...)`;
+  
+  console.log(`\n${'='.repeat(80)}`);
+  console.log(`📊 Testing: ${testName}`);
+  console.log('='.repeat(80));
+  
+  const path = endpoint.includes('gemini') ? 'query-gemini' : 'query';
+  
+  try {
+    // Test localhost
+    console.log(`\n🌐 Testing LOCALHOST: ${LOCALHOST_URL}/${path}`);
+    const localhostStart = Date.now();
+    
+    const localhostResponse = await fetch(`${LOCALHOST_URL}/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    
+    const localhostTime = Date.now() - localhostStart;
+    const localhostData = await localhostResponse.json();
+    
+    console.log(`⏱️ Response time: ${localhostTime}ms`);
+    console.log(`✅ Status: ${localhostResponse.status}`);
+    console.log(`📦 Response size: ${JSON.stringify(localhostData).length} bytes`);
+    
+    if (localhostData.tokens_used) {
+      console.log(`🔢 Tokens used: ${localhostData.tokens_used}`);
+    }
+    
+  } catch (error) {
+    console.error(`❌ Localhost Error: ${error.message}`);
+  }
+  
+  try {
+    // Test Cloud Run
+    console.log(`\n☁️ Testing CLOUD RUN: ${CLOUD_RUN_URL}/${path}`);
+    const cloudStart = Date.now();
+    
+    const cloudResponse = await fetch(`${CLOUD_RUN_URL}/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    
+    const cloudTime = Date.now() - cloudStart;
+    const cloudData = await cloudResponse.json();
+    
+    console.log(`⏱️ Response time: ${cloudTime}ms`);
+    console.log(`✅ Status: ${cloudResponse.status}`);
+    console.log(`📦 Response size: ${JSON.stringify(cloudData).length} bytes`);
+    
+    if (cloudData.tokens_used) {
+      console.log(`🔢 Tokens used: ${cloudData.tokens_used}`);
+    }
+    
+  } catch (error) {
+    console.error(`❌ Cloud Run Error: ${error.message}`);
+  }
+  
+  console.log();
+}
+
+async function runComparison() {
+  const queries = [
+    { query: 'What time is it?', type: 'gemini' },
+    { query: 'Convert 100 kilometers to miles', type: 'gemini' },
+    { query: 'I want to bake at 350 Fahrenheit. What is that in Celsius?', type: 'openai' },
+    { query: 'What are recent developments in AI?', type: 'openai' },
+  ];
+  
+  console.log('🚀 Starting Localhost vs Cloud Run Comparison');
+  console.log(`⏰ Timestamp: ${new Date().toISOString()}`);
+  
+  for (const { query, type } of queries) {
+    const endpoint = type === 'gemini' ? 'query-gemini' : 'query';
+    await compareEndpoints(query, endpoint);
+  }
+  
+  console.log('✨ Comparison complete!');
+}
+
+runComparison().catch(console.error);
+```
+
+Run it with:
+
+```bash
+node tests/compare-environments.js
+```
+
+### 24.2) Key Metrics to Compare
+
+When comparing localhost vs Cloud Run, look for:
+
+| Metric | Localhost | Cloud Run | Notes |
+|--------|-----------|-----------|-------|
+| **Response Time** | <1s typical | 1-3s (cold start may be higher) | Cold starts add 2-5s overhead |
+| **HTTP Status Code** | 200 | 200 | Both should return 200 OK |
+| **Token Usage** | Same query = same tokens | Same query = same tokens | Should be identical |
+| **Response Size** | Exact match | Exact match | JSON should be identical |
+| **Error Handling** | Same errors | Same errors | Errors should match |
+| **Availability** | Local only | Global (depending on region) | Cloud Run is accessible from anywhere |
+| **Concurrency** | Limited by machine | Scales automatically | Cloud Run handles multiple requests |
+
+### 24.3) Troubleshooting Cloud Run Tests
+
+**Issue: `Connection refused` when testing Cloud Run**
+```bash
+# Verify the service is running
+gcloud run services describe debug-nodejs-llm-tools --region us-central1
+
+# Check if URL is correct
+gcloud run services list --region us-central1
+```
+
+**Issue: `401 Unauthorized`**
+```bash
+# Check if service allows unauthenticated access
+gcloud run services update debug-nodejs-llm-tools \
+  --allow-unauthenticated \
+  --region us-central1
+```
+
+**Issue: `500 Internal Server Error` on Cloud Run but works on localhost**
+```bash
+# Check Cloud Run logs
+gcloud run services logs read debug-nodejs-llm-tools \
+  --limit 100 \
+  --region us-central1
+
+# Check if all environment variables are set
+gcloud run services describe debug-nodejs-llm-tools \
+  --region us-central1 \
+  --format='value(spec.template.spec.containers[0].env[*].value)'
+```
+
+**Issue: API requests timing out on Cloud Run**
+- Increase Cloud Run timeout: 
+```bash
+gcloud run services update debug-nodejs-llm-tools \
+  --timeout 600 \
+  --region us-central1
+```
+
+---
+
+Last verified: December 16, 2025
